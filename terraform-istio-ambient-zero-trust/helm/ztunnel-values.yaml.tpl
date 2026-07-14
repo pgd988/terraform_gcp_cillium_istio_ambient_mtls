@@ -9,8 +9,6 @@ profile: ambient
 replicaCount: 1 # DaemonSet runs exactly 1 pod per matching node
 
 env:
-  ISTIO_META_CLUSTER_ID: "${cluster_id}"
-  ISTIO_META_NETWORK: "${network}"
   XDS_ADDRESS: "istiod.${istio_namespace}.svc:15012"
   CA_ADDR: "istiod.${istio_namespace}.svc:15012"
 
@@ -54,7 +52,3 @@ serviceAccount:
 
 global:
   istioNamespace: "${istio_namespace}"
-  meshID: "mesh-${cluster_id}"
-  multiCluster:
-    clusterName: "${cluster_id}"
-  network: "${network}"

@@ -14,7 +14,8 @@ examples/argocd-gitops-manifests/
 ├── 02-waypoint-gateway.yaml             # Deploys Gateway API L7 Waypoint proxies (`istio-waypoint`)
 ├── 03-waypoint-enrollment.yaml          # Enrolls Namespaces or ServiceAccounts to use Waypoint
 ├── 04-l7-http-route.yaml                # Defines L7 HTTPRoute rules (path routing, timeouts, retries)
-└── 05-authorization-policy.yaml         # Enforces SPIFFE workload identity access policies (`ALLOW`/`DENY`)
+├── 05-authorization-policy.yaml         # Enforces SPIFFE workload identity access policies (`ALLOW`/`DENY`)
+└── 06-l7-fault-injection.yaml           # Demonstrates L7 Chaos Engineering & Fault Injection on Waypoint
 ```
 
 ---

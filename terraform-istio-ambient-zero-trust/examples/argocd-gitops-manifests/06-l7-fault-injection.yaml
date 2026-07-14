@@ -1,0 +1,74 @@
+# 06-l7-fault-injection.yaml
+# Gateway API & EnvoyFilter L7 Fault Injection (Chaos Engineering) Example
+# Demonstrates injecting artificial latency and HTTP 500 status aborts on an Istio Waypoint Gateway (`GatewayClass: istio-waypoint`)
+# This manifest can be deployed via ArgoCD GitOps or provisioned dynamically using the dedicated `modules/fault-injection` Terraform submodule.
+
+---
+apiVersion: networking.istio.io/v1alpha3
+kind: EnvoyFilter
+metadata:
+  name: payments-chaos-testing-filter
+  namespace: payments
+  labels:
+    app.kubernetes.io/managed-by: argocd
+    istio.io/component: waypoint-fault-injection
+spec:
+  # Target the Waypoint Gateway deployment intercepting L7 traffic in the `payments` namespace
+  workloadSelector:
+    labels:
+      gateway.networking.k8s.io/gateway-name: waypoint
+  configPatches:
+    - applyTo: HTTP_FILTER
+      match:
+        context: GATEWAY
+        listener:
+          filterChain:
+            filter:
+              name: envoy.filters.network.http_connection_manager
+      patch:
+        operation: INSERT_BEFORE
+        value:
+          name: envoy.filters.http.fault
+          typed_config:
+            "@type": type.googleapis.com/envoy.extensions.filters.http.fault.v3.HTTPFault
+            # Inject HTTP 500 error on 15% of matching requests
+            abort:
+              http_status: 500
+              percentage:
+                numerator: 1500
+                denominator: TEN_THOUSAND
+            # Inject a 3-second artificial delay on 20% of matching requests
+            delay:
+              fixed_delay: 3s
+              percentage:
+                numerator: 2000
+                denominator: TEN_THOUSAND
+
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: payments-chaos-testing-route
+  namespace: payments
+  labels:
+    app.kubernetes.io/managed-by: argocd
+spec:
+  parentRefs:
+    - name: waypoint
+  hostnames:
+    - "payments.payments.svc.cluster.local"
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /checkout/test
+          headers:
+            - type: Exact
+              name: x-chaos-test
+              value: "enabled"
+      timeouts:
+        request: 10s
+      backendRefs:
+        - name: payments
+          port: 8080
+          weight: 100

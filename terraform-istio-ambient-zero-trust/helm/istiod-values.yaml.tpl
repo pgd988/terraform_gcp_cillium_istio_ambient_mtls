@@ -13,8 +13,6 @@ meshConfig:
   defaultConfig:
     proxyMetadata:
       ISTIO_META_DATAPLANE_MODE: "ambient"
-      ISTIO_META_CLUSTER_ID: "${cluster_id}"
-      ISTIO_META_NETWORK: "${network}"
     # GKE Dataplane V2 compatibility: ensure smooth socket discovery and clean termination
     holdApplicationUntilProxyStarts: true
 
@@ -30,8 +28,6 @@ pilot:
     PILOT_ENABLE_AMBIENT: "true"
     PILOT_ENABLE_STATUS: "true"
     CA_TRUST_NODE: "true"
-    ISTIO_META_CLUSTER_ID: "${cluster_id}"
-    ISTIO_META_NETWORK: "${network}"
 
   resources:
     requests:
@@ -55,10 +51,6 @@ pilot:
 
 global:
   istioNamespace: "${istio_namespace}"
-  meshID: "mesh-${cluster_id}"
-  multiCluster:
-    clusterName: "${cluster_id}"
-  network: "${network}"
 
 # Telemetry and Prometheus integration with Google Cloud Managed Service for Prometheus (GMP)
 telemetry:

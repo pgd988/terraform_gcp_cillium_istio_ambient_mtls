@@ -35,7 +35,4 @@ module "istio_ambient" {
 
   # Enforce STRICT mTLS across the mesh backbone inside istio-system
   enable_strict_mtls = true
-
-  # Single cluster deployment (`enable_multicluster = false`)
-  enable_multicluster = false
 }

@@ -8,7 +8,7 @@ The module is specifically designed to interoperate seamlessly with GKE's modern
 
 ## 1. Architecture Diagram
 
-The following diagram illustrates how Istio Ambient Mode (`ztunnel` L4 eBPF redirection + optional `istio-waypoint` L7 proxies) integrates with GKE Dataplane V2 and external Google Cloud platform services across single or multi-cluster environments:
+The following diagram illustrates how Istio Ambient Mode (`ztunnel` L4 eBPF redirection + optional `istio-waypoint` L7 proxies) integrates with GKE Dataplane V2 and external Google Cloud platform services in a single-cluster environment:
 
 ```text
 +========================================================================================================+
@@ -20,7 +20,7 @@ The following diagram illustrates how Istio Ambient Mode (`ztunnel` L4 eBPF redi
                   | (Polls Root CA 1h)                | (SA IAM Mapping)                ^                 
                   v                                   v                                 | (Prometheus     
 +=================|===================================|=================================|================+
-| GKE STANDARD CLUSTER A (prod-eu / Dataplane V2 / Cilium eBPF)                         | Scraping       |
+| GKE STANDARD CLUSTER (Dataplane V2 / Cilium eBPF / Single-Cluster Ambient Mesh)       | Scraping       |
 |                 |                                   |                                 | 15020/15090)   |
 |  +--------------|-----------------------------------|------------------------------+  |                |
 |  | CONTROL PLANE| (Namespace: istio-system)         |                              |  |                |
@@ -35,27 +35,25 @@ The following diagram illustrates how Istio Ambient Mode (`ztunnel` L4 eBPF redi
 |  |  | cacerts Secret         |------------+ Reload  |  mTLS Certs &                |  |                |
 |  |  | (Synced via ESO)       |                      |  HBONE Routes)               |  |                |
 |  |  +------------------------+                      |                              |  |                |
-|  |  +------------------------+                      |         +-----------------+  |  |                |
-|  |  | istio-base Chart       |                      |         | East-West       |  |  |                |
-|  |  | (Ambient CRDs)         |                      |         | Gateway         |<----+                |
-|  |  +------------------------+                      |         | LoadBalancer    |  |  |                |
-|  |                                                  |         | (15443 SNI-DNAT)|  |  |                |
-|  |                                                  |         +--------+--------+  |  |                |
-|  +--------------------------------------------------|------------------|-----------+  |                |
-|                                                     |                  ^              |                |
-|                                                     |                  | HBONE Tunnel |                |
-|                                                     v                  | (Port 15443) |                |
-|  +--------------------------------------------------|------------------|-----------+  |                |
-|  | DATAPLANE: eBPF Socket Redirection Layer         |                  |           |  |                |
-|  |                                                  |                  +--------------+                |
-|  |    +---------------------------------------------|------------------------------+  |                |
-|  |    | ztunnel DaemonSet Pods                      v                              +--+--+ (Scrapes    |
-|  |    | HostNetwork / CAP_NET_ADMIN / eBPF Socket Redirection (HBONE/mTLS/SPIFFE)  |  |  |  15020)     |
-|  |    +---------------------------------------------^------------------------------+  |  |             |
-|  +--------------------------------------------------|---------------------------------+  |             |
-|                                                     | (Plaintext Socket Intercepted by   |             |
-|                                                     |  eBPF Socket Redirection)          |             |
-|  +--------------------------------------------------|------------------------------------+-----------+ |
+|  |  +------------------------+                      |                              |  |                |
+|  |  | istio-base Chart       |                      |                              |  |                |
+|  |  | (Ambient CRDs)         |                      |                              |  |                |
+|  |  +------------------------+                      |                              |  |                |
+|  +--------------------------------------------------|------------------------------+  |                |
+|                                                     |                                 |                |
+|                                                     |                                 |                |
+|                                                     v                                 |                |
+|  +--------------------------------------------------|------------------------------+  |                |
+|  | DATAPLANE: eBPF Socket Redirection Layer         |                              |  |                |
+|  |                                                  |                              +--+--+ (Scrapes    |
+|  |    +---------------------------------------------|---------------------------+  |  |  |  15020)     |
+|  |    | ztunnel DaemonSet Pods                      v                           |  |  |  |             |
+|  |    | HostNetwork / CAP_NET_ADMIN / eBPF Socket Redirection (HBONE/mTLS)      +--+--+--+             |
+|  |    +---------------------------------------------^---------------------------+  |                   |
+|  +--------------------------------------------------|------------------------------+                   |
+|                                                     | (Plaintext Socket Intercepted by                 |
+|                                                     |  eBPF Socket Redirection)                        |
+|  +--------------------------------------------------|------------------------------------------------+ |
 |  | ENROLLED NAMESPACE: payments (istio.io/dataplane-mode: ambient)                                   | |
 |  |                                                  |                                                | |
 |  |    +-------------------------+                   |       +-----------------------------------+    | |
@@ -68,33 +66,6 @@ The following diagram illustrates how Istio Ambient Mode (`ztunnel` L4 eBPF redi
 |  |    | (SA: wallet)            |                           | (Mode: STRICT mTLS)               |    | |
 |  |    +-------------------------+                           +-----------------------------------+    | |
 |  +---------------------------------------------------------------------------------------------------+ |
-+=====================================================+==================================================+
-                                                      |                                                   
-                                                      | Cross-Network HBONE mTLS Tunnel (15443 SNI-DNAT)  
-                                                      v                                                   
-+========================================================================================================+
-| GKE STANDARD CLUSTER B (prod-us / Dataplane V2 / Cilium eBPF)                                          |
-|                                                                                                        |
-|  +------------------------------------+                 +-------------------------------------------+  |
-|  | East-West Gateway Service          |                 | DATAPLANE: eBPF Socket Redirection Layer  |  |
-|  | Cluster B LoadBalancer             |                 |                                           |  |
-|  +-----------------+------------------+                 |    +---------------------------------+    |  |
-|                    |                                    |    | ztunnel DaemonSet Pods          |    |  |
-|                    | (XDS Routing)                      |    | Cluster B                       |    |  |
-|                    +---------------------------------------->+----------------+----------------+    |  |
-|                                                         +---------------------|---------------------+  |
-|                                                                               |                        |
-|                                                                               | (L7 Authorization      |
-|                                                                               v  Check)                |
-|  +--------------------------------------------------------------------------------------------------+  |
-|  | ENROLLED NAMESPACE: backend (istio.io/dataplane-mode: ambient)                                   |  |
-|  |                                                                                                  |  |
-|  |    +---------------------------------------+           +------------------------------------+    |  |
-|  |    | Optional Waypoint Proxy               |           | Backend Service Pod                |    |  |
-|  |    | Gateway API (L7 Routing / JWT Auth)   |---------->| (SA: backend)                      |    |  |
-|  |    +---------------------------------------+           +------------------------------------+    |  |
-|  |                                                      (Verified L4 Socket Delivery)               |  |
-|  +--------------------------------------------------------------------------------------------------+  |
 +========================================================================================================+
 ```
 
@@ -121,15 +92,6 @@ module "istio_ambient" {
   namespace          = "istio-system"
   enable_ambient     = true
   enable_strict_mtls = true
-
-  ambient_namespaces = [
-    "payments",
-    "wallet",
-    "backend"
-  ]
-
-  # Optional multi-cluster East-West peering
-  enable_multicluster = false
 }
 ```
 
@@ -217,45 +179,14 @@ We have provided comprehensive, production-ready YAML manifests demonstrating ex
 3. **Waypoint Enrollments on Namespaces & ServiceAccounts** (`03-waypoint-enrollment.yaml`)
 4. **L7 HTTPRoute Traffic Routing & Retries** (`04-l7-http-route.yaml`)
 5. **Zero-Trust SPIFFE AuthorizationPolicies** (`05-authorization-policy.yaml`)
+6. **L7 Chaos Engineering & Fault Injection** (`06-l7-fault-injection.yaml`)
 
 Please review and copy directly from our dedicated GitOps examples folder:
 👉 **[`./examples/argocd-gitops-manifests/`](file:///Users/pgd988/den/chrono_repos/tmp/terraform_gcp_cillium_istio_ambient_mtls/terraform-istio-ambient-zero-trust/examples/argocd-gitops-manifests/README.md)**
 
----
-
-## 7. Multi-Cluster Setup Procedure
-
-Multi-cluster Ambient Mesh (`enable_multicluster = true`) is an advanced capability that enables zero-trust mTLS service-to-service communication across independent GKE clusters residing in different VPC networks or GCP regions.
-
-### Architectural Maturity Recommendation
-As illustrated in our examples, **keep multi-cluster disabled by default (`enable_multicluster = false`)** for standalone or non-peered clusters. Only enable `enable_multicluster = true` for clusters that are intentionally part of the same shared **Trust Domain** (e.g., `prod.global.local` shared across `prod-eu` and `prod-us`).
-
-### Setup Steps for Cluster A (`prod-eu`) and Cluster B (`prod-us`)
-
-1. **Synchronize Trust Domain & Root CA**:
-   Ensure both clusters configure identical `trust_domain = "prod.global.local"` and point their `trust_bundle_secret` to the exact same Google Secret Manager root CA ID (`istio-ca-root`).
-
-2. **Assign Unique Cluster IDs and Networks**:
-   Each cluster must declare a distinct `cluster_id` and `network`:
-   - Cluster A: `cluster_id = "prod-eu"`, `network = "vpc-prod-eu"`
-   - Cluster B: `cluster_id = "prod-us"`, `network = "vpc-prod-us"`
-
-3. **Deploy East-West Gateways**:
-   Set `enable_multicluster = true`. The module automatically deploys the `istio-eastwestgateway` LoadBalancer Service and applies the `cross-network-gateway` passthrough `Gateway` resource listening on port `15443` with `AUTO_PASSTHROUGH` TLS mode.
-
-4. **Exchange Endpoint Secrets**:
-   Extract the API server endpoint and CA certificate from each cluster, and pass them into the peer's `remote_clusters` variable map:
-   ```hcl
-   remote_clusters = {
-     "prod-us" = {
-       cluster_name          = "prod-us"
-       api_server_endpoint   = "https://34.123.45.67"
-       ca_crt_base64         = "LS0tLS1CRUdJ..."
-       service_account_token = "eyJhbGciOi..."
-     }
-   }
-   ```
-   The module registers Kubernetes Secrets labeled `istio/multiCluster=true` inside `istio-system`. `istiod` uses this kubeconfig to discover remote pods and configure `ztunnel` to tunnel cross-cluster requests over SNI-DNAT via the East-West Gateway.
+> [!TIP]
+> **Standalone Terraform Submodule**: If your CI/CD pipeline or testing team prefers managing L7 chaos engineering and fault injection dynamically via Terraform rather than GitOps YAML files, you can invoke our dedicated standalone submodule without modifying the CNI backbone:
+> 👉 **[`./terraform-istio-ambient-zero-trust/modules/fault-injection`](file:///Users/pgd988/den/chrono_repos/tmp/terraform_gcp_cillium_istio_ambient_mtls/terraform-istio-ambient-zero-trust/modules/fault-injection/README.md)**
 
 ---
 
@@ -307,7 +238,6 @@ To upgrade Istio Ambient Mesh from one minor version to another (e.g., `1.22.1` 
 | :--- | :--- | :--- |
 | **`ztunnel` pods stuck in `CrashLoopBackOff` or reporting permission errors opening netns** | Missing Linux capabilities or non-host network context. | Ensure `ztunnel-values.yaml.tpl` maintains `securityContext.privileged: true` and capabilities `NET_ADMIN`, `SYS_ADMIN`, `NET_RAW` so `ztunnel` can inspect and redirect socket file descriptors alongside Cilium eBPF. |
 | **Application pods in ambient namespace cannot reach external internet (DNS timeouts)** | `ztunnel` intercepting UDP DNS (`:53`) or missing external pass-through rule. | Verify `istiod` `meshConfig` allows `OUTBOUND_TRAFFIC_POLICY: ALLOW_ANY` or ensure proper `AuthorizationPolicy` egress rules exist. Check `ztunnel` logs for `istio.io/dataplane-mode=ambient` CNI redirection errors. |
-| **Cross-cluster mTLS handshake failures (`503 UC` / SSL errors)** | Mismatched `trust_domain` or East-West Gateway port 15443 blocked by GKE VPC firewall. | Verify both clusters share the same `trust_domain` (`cluster.local` vs custom DNS). Check GCP VPC firewall rules to confirm port `15443` (`TCP`) is allowed across East-West Gateway load balancers. |
 
 ---
 
@@ -356,14 +286,4 @@ kubectl exec -n payments -c curl frontend-pod -- curl -s -o /dev/null -w "%{http
 # Unauthorized request from un-enrolled default namespace (should be blocked by default-deny / PeerAuth)
 kubectl run -i --rm --restart=Never test-unauthorized --image=curlimages/curl -- curl -s -o /dev/null -w "%{http_code}\n" --max-time 5 http://backend.backend.svc.cluster.local:8080/healthz
 # Expected Output: 000 (Connection refused/dropped by ztunnel due to lack of valid SPIFFE HBONE tunnel)
-```
-
-#### 3. Cross-Cluster East-West Validation
-Verify cross-cluster mTLS tunneling from `Cluster A` (`prod-eu`) to `Cluster B` (`prod-us`):
-```bash
-# Execute request from prod-eu frontend pod to prod-us database/backend service
-kubectl exec --context=gke_prod-eu -n payments -c curl frontend-pod -- curl -s -o /dev/null -w "%{http_code}\n" http://backend.backend.svc.prod.global.local:8080/status
-
-# Verify East-West Gateway traffic metrics across port 15443 on Cluster B
-kubectl logs --context=gke_prod-us -n istio-system -l istio=istio-eastwestgateway --tail=50 | grep ":15443"
 ```

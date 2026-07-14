@@ -111,38 +111,8 @@ variable "helm_config" {
   }
 }
 
-variable "enable_multicluster" {
-  description = "Whether to enable multi-cluster Ambient Mesh capabilities (East-West Gateway, shared trust domain, cross-cluster endpoint discovery)."
-  type        = bool
-  default     = false
-}
-
-variable "cluster_name" {
-  description = "Name of the current GKE cluster (used for multi-cluster metadata and East-West routing)."
-  type        = string
-  default     = "gke-ambient-main"
-}
-
-variable "cluster_id" {
-  description = "Unique ID of the current GKE cluster (`ISTIO_META_CLUSTER_ID`). Must be distinct across all clusters in the multi-cluster mesh."
-  type        = string
-  default     = "gke-ambient-main-id"
-}
-
-variable "network" {
-  description = "VPC network identifier (`ISTIO_META_NETWORK`). Clusters on different VPC networks must use unique network names to route via East-West Gateway."
-  type        = string
-  default     = "gke-vpc-main"
-}
-
-variable "region" {
-  description = "Google Cloud region of the GKE cluster."
-  type        = string
-  default     = "us-central1"
-}
-
 variable "trust_domain" {
-  description = "The Istio SPIFFE trust domain (`spiffe://<trust_domain>/ns/<ns>/sa/<sa>`). Multi-cluster meshes must share the same trust domain or configure trust domain aliases."
+  description = "The Istio SPIFFE trust domain (`spiffe://<trust_domain>/ns/<ns>/sa/<sa>`)."
   type        = string
   default     = "cluster.local"
 
@@ -150,17 +120,6 @@ variable "trust_domain" {
     condition     = can(regex("^[a-zA-Z0-9.-]+$", var.trust_domain))
     error_message = "The trust_domain must be a valid DNS-like identifier without URI prefixes."
   }
-}
-
-variable "remote_clusters" {
-  description = "Map of remote GKE clusters for multi-cluster mTLS endpoint synchronization (`istio/multiCluster=true` secrets)."
-  type = map(object({
-    cluster_name          = string
-    api_server_endpoint   = string # e.g., "https://34.123.45.67"
-    ca_crt_base64         = string
-    service_account_token = string
-  }))
-  default = {}
 }
 
 variable "trust_bundle_secret" {
@@ -181,10 +140,4 @@ variable "trust_bundle_secret" {
     gsm_secret_id     = "istio-ca-root"
     refresh_interval  = "1h"
   }
-}
-
-variable "east_west_gateway_name" {
-  description = "Name of the Istio East-West Gateway deployment and service when `enable_multicluster` is set to true."
-  type        = string
-  default     = "istio-eastwestgateway"
 }

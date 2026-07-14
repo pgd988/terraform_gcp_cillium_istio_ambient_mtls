@@ -19,8 +19,6 @@ locals {
   # Dataplane V2 uses Cilium underneath. ztunnel runs in ambient mode and redirects traffic
   # via eBPF/CNI sockets. We ensure exact environment and metadata flags are passed.
   dataplane_metadata = {
-    ISTIO_META_CLUSTER_ID       = var.cluster_id
-    ISTIO_META_NETWORK          = var.network
     ISTIO_META_DATAPLANE_MODE   = "ambient"
     PILOT_ENABLE_AMBIENT        = "true"
     PILOT_ENABLE_ZTUNNEL_SOCKET = "true"
@@ -35,8 +33,6 @@ locals {
   istiod_values = templatefile("${path.module}/helm/istiod-values.yaml.tpl", {
     istio_namespace   = var.namespace
     trust_domain      = var.trust_domain
-    cluster_id        = var.cluster_id
-    network           = var.network
     enable_ambient    = var.enable_ambient
     enable_telemetry  = var.enable_telemetry
     enable_prometheus = var.enable_prometheus
@@ -44,8 +40,6 @@ locals {
 
   ztunnel_values = templatefile("${path.module}/helm/ztunnel-values.yaml.tpl", {
     istio_namespace   = var.namespace
-    cluster_id        = var.cluster_id
-    network           = var.network
     trust_domain      = var.trust_domain
     enable_telemetry  = var.enable_telemetry
     enable_prometheus = var.enable_prometheus

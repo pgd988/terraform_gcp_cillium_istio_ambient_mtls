@@ -29,16 +29,6 @@ output "spiffe_identity_pattern" {
   value       = local.spiffe_identity_pattern
 }
 
-output "multicluster_enabled" {
-  description = "Boolean indicating whether multi-cluster East-West mTLS routing is active."
-  value       = var.enable_multicluster
-}
-
-output "east_west_gateway_release" {
-  description = "Name of the East-West Gateway Helm release if multi-cluster mode is enabled."
-  value       = try(module.multicluster[0].east_west_gateway_release, null)
-}
-
 output "peer_authentication_mode" {
   description = "The mesh-wide PeerAuthentication mTLS enforcement mode (`STRICT` or `PERMISSIVE`) inside istio-system."
   value       = try(module.kubernetes[0].peer_authentication_mode, "disabled")
