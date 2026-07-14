@@ -1,0 +1,46 @@
+# Gateway API HTTPRoute attached to the Waypoint Gateway (`parentRefs`)
+# Executes L7 path-based routing, header matching, retries, timeouts, and canary traffic shifting
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: backend-l7-routing
+  namespace: backend
+  labels:
+    app.kubernetes.io/managed-by: argocd
+spec:
+  parentRefs:
+    - name: waypoint
+  hostnames:
+    - "backend.backend.svc.cluster.local"
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /api/v1
+          headers:
+            - type: Exact
+              name: x-client-version
+              value: v2
+      timeouts:
+        request: 5s
+        backendRequest: 3s
+      retries:
+        attempts: 3
+        retryOn: "5xx,connect-failure,refused-stream"
+      backendRefs:
+        - name: backend-v2
+          port: 8080
+          weight: 90
+        - name: backend-canary
+          port: 8080
+          weight: 10
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      timeouts:
+        request: 10s
+      backendRefs:
+        - name: backend
+          port: 8080
+          weight: 100

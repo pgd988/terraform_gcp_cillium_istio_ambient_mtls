@@ -1,0 +1,21 @@
+# Option A: Namespace-level Waypoint Enrollment
+# All services inside the 'backend' namespace will route through the 'waypoint' Gateway for L7 processing
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: backend
+  labels:
+    istio.io/dataplane-mode: ambient
+    istio.io/use-waypoint: waypoint
+    app.kubernetes.io/managed-by: argocd
+---
+# Option B: ServiceAccount / Workload-specific Waypoint Enrollment
+# Only workloads running under the 'backend-sa' ServiceAccount will route through 'backend-workload-waypoint'
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: backend-sa
+  namespace: backend
+  labels:
+    istio.io/use-waypoint: backend-workload-waypoint
+    app.kubernetes.io/managed-by: argocd

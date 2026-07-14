@@ -1,0 +1,35 @@
+# AuthorizationPolicy enforcing cryptographic SPIFFE identity-based zero-trust access control across the Ambient mesh
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: allow-frontend-to-backend
+  namespace: backend
+  labels:
+    app.kubernetes.io/managed-by: argocd
+spec:
+  action: ALLOW
+  selector:
+    matchLabels:
+      app: backend
+  rules:
+    - from:
+        - source:
+            # Only workloads authenticated with the exact SPIFFE ID of the 'frontend' ServiceAccount in 'payments' namespace can access 'backend'
+            principals: ["spiffe://cluster.local/ns/payments/sa/frontend"]
+      to:
+        - operation:
+            ports: ["8080"]
+            methods: ["GET", "POST"]
+            paths: ["/api/v1/*"]
+---
+# Example: Default Deny All policy across an application namespace
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: default-deny-all
+  namespace: backend
+  labels:
+    app.kubernetes.io/managed-by: argocd
+spec:
+  action: DENY
+  rules: []

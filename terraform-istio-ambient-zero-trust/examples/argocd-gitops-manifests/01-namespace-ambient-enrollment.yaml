@@ -1,0 +1,25 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: payments
+  labels:
+    # Enroll namespace into Istio Ambient eBPF/ztunnel L4 socket redirection
+    istio.io/dataplane-mode: ambient
+    # Managed via ArgoCD GitOps
+    app.kubernetes.io/managed-by: argocd
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: wallet
+  labels:
+    istio.io/dataplane-mode: ambient
+    app.kubernetes.io/managed-by: argocd
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: backend
+  labels:
+    istio.io/dataplane-mode: ambient
+    app.kubernetes.io/managed-by: argocd
