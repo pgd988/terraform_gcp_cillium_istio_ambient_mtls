@@ -10,64 +10,92 @@ The module is specifically designed to interoperate seamlessly with GKE's modern
 
 The following diagram illustrates how Istio Ambient Mode (`ztunnel` L4 eBPF redirection + optional `istio-waypoint` L7 proxies) integrates with GKE Dataplane V2 and external Google Cloud platform services across single or multi-cluster environments:
 
-```mermaid
-graph TD
-    subgraph GCP["Google Cloud Platform Layer"]
-        GSM["Google Secret Manager (GSM)<br>Root CA Trust Store"]
-        GMP["Google Cloud Managed Prometheus (GMP)<br>15020 & 15090 Scraping"]
-        WI["GKE Workload Identity<br>IAM Role Bindings"]
-    end
-
-    subgraph ClusterA["GKE Standard Cluster A (e.g., prod-eu / Dataplane V2 / Cilium eBPF)"]
-        subgraph ControlPlane["Namespace: istio-system"]
-            ESO["External Secrets Operator (ESO)<br>ClusterSecretStore"]
-            IstioBase["istio-base Chart<br>Ambient CRDs"]
-            Istiod["istiod Chart (Control Plane)<br>Profile: ambient / XDS & SDS"]
-            CASecret["cacerts Secret<br>Synced via ESO from GSM"]
-            EWG["East-West Gateway Service<br>LoadBalancer (15443 SNI-DNAT)"]
-        end
-
-        subgraph DataPlane["eBPF Socket Redirection Layer"]
-            ZtunnelA["ztunnel DaemonSet Pods<br>HostNetwork / CAP_NET_ADMIN / eBPF Socket Redirection"]
-        end
-
-        subgraph WorkloadNS["Enrolled Namespace: payments (istio.io/dataplane-mode: ambient)"]
-            AppPayments["Frontend Pod<br>SA: frontend"]
-            AppWallet["Wallet Pod<br>SA: wallet"]
-            AuthZ["AuthorizationPolicy<br>SPIFFE Principal Verification"]
-            PeerAuth["PeerAuthentication<br>Mode: STRICT mTLS"]
-        end
-    end
-
-    subgraph ClusterB["GKE Standard Cluster B (e.g., prod-us / Dataplane V2 / Cilium eBPF)"]
-        subgraph ClusterBNS["Namespace: backend (istio.io/dataplane-mode: ambient)"]
-            AppBackend["Backend Service Pod<br>SA: backend"]
-            WaypointB["Optional Waypoint Proxy<br>Gateway API (L7 Routing / JWT)"]
-        end
-        ZtunnelB["ztunnel DaemonSet Pods<br>Cluster B"]
-        EWGB["East-West Gateway Service<br>Cluster B LoadBalancer"]
-    end
-
-    %% Sync flows
-    GSM -->|Polls Root CA every 1h| ESO
-    ESO -->|Creates / Updates| CASecret
-    CASecret -->|inotify SDS Reload| Istiod
-    Istiod -->|SDS Workload mTLS Certs| ZtunnelA
-    Istiod -->|XDS HBONE Routes| ZtunnelA
-    WI -->|ServiceAccount IAM Mapping| Istiod
-
-    %% Traffic flows
-    AppPayments -->|Plaintext Socket Intercepted by eBPF| ZtunnelA
-    ZtunnelA -->|HBONE / mTLS / SPIFFE ID Encapsulation| ZtunnelA
-    ZtunnelA -->|Cross-Network HBONE mTLS Tunnel (15443)| EWG
-    EWG -->|SNI Passthrough over VPC| EWGB
-    EWGB -->|XDS Routing| ZtunnelB
-    ZtunnelB -->|L7 Authorization Check| WaypointB
-    WaypointB -->|Verified L4 Socket Delivery| AppBackend
-
-    %% Telemetry
-    ZtunnelA -.->|Prometheus Metrics Scraping| GMP
-    Istiod -.->|Control Plane Metrics| GMP
+```text
++========================================================================================================+
+|                                      GOOGLE CLOUD PLATFORM LAYER                                       |
++-----------------------------------+-----------------------------------+--------------------------------+
+|  [Google Secret Manager (GSM)]    | [GKE Workload Identity (WI)]      | [Google Cloud Managed          |
+|   Root CA Trust Store             |  IAM Role Bindings                |  Prometheus (GMP)]             |
++-----------------+-----------------+-----------------+-----------------+---------------+----------------+
+                  | (Polls Root CA 1h)                | (SA IAM Mapping)                ^                 
+                  v                                   v                                 | (Prometheus     
++=================|===================================|=================================|================+
+| GKE STANDARD CLUSTER A (prod-eu / Dataplane V2 / Cilium eBPF)                         | Scraping       |
+|                 |                                   |                                 | 15020/15090)   |
+|  +--------------|-----------------------------------|------------------------------+  |                |
+|  | CONTROL PLANE| (Namespace: istio-system)         |                              |  |                |
+|  |              v                                   v                              |  |                |
+|  |  +------------------------+       +--------------------+       +-------------+  |  |                |
+|  |  | External Secrets       |       | istiod Chart       | - - - | Control     |--+--+                |
+|  |  | Operator (ESO)         |       | Control Plane      |       | Plane       |  |  |                |
+|  |  +-----------+------------+       +----+---------+-----+       | Metrics     |  |  |                |
+|  |              | Creates/Updates         ^         |             +-------------+  |  |                |
+|  |              v                         | inotify |                              |  |                |
+|  |  +------------------------+            | SDS     | (XDS / SDS                   |  |                |
+|  |  | cacerts Secret         |------------+ Reload  |  mTLS Certs &                |  |                |
+|  |  | (Synced via ESO)       |                      |  HBONE Routes)               |  |                |
+|  |  +------------------------+                      |                              |  |                |
+|  |  +------------------------+                      |         +-----------------+  |  |                |
+|  |  | istio-base Chart       |                      |         | East-West       |  |  |                |
+|  |  | (Ambient CRDs)         |                      |         | Gateway         |<----+                |
+|  |  +------------------------+                      |         | LoadBalancer    |  |  |                |
+|  |                                                  |         | (15443 SNI-DNAT)|  |  |                |
+|  |                                                  |         +--------+--------+  |  |                |
+|  +--------------------------------------------------|------------------|-----------+  |                |
+|                                                     |                  ^              |                |
+|                                                     |                  | HBONE Tunnel |                |
+|                                                     v                  | (Port 15443) |                |
+|  +--------------------------------------------------|------------------|-----------+  |                |
+|  | DATAPLANE: eBPF Socket Redirection Layer         |                  |           |  |                |
+|  |                                                  |                  +--------------+                |
+|  |    +---------------------------------------------|------------------------------+  |                |
+|  |    | ztunnel DaemonSet Pods                      v                              +--+--+ (Scrapes    |
+|  |    | HostNetwork / CAP_NET_ADMIN / eBPF Socket Redirection (HBONE/mTLS/SPIFFE)  |  |  |  15020)     |
+|  |    +---------------------------------------------^------------------------------+  |  |             |
+|  +--------------------------------------------------|---------------------------------+  |             |
+|                                                     | (Plaintext Socket Intercepted by   |             |
+|                                                     |  eBPF Socket Redirection)          |             |
+|  +--------------------------------------------------|------------------------------------+-----------+ |
+|  | ENROLLED NAMESPACE: payments (istio.io/dataplane-mode: ambient)                                   | |
+|  |                                                  |                                                | |
+|  |    +-------------------------+                   |       +-----------------------------------+    | |
+|  |    | Frontend Pod            |-------------------+       | AuthorizationPolicy               |    | |
+|  |    | (SA: frontend)          |                           | (SPIFFE Principal Verification)   |    | |
+|  |    +-------------------------+                           +-----------------------------------+    | |
+|  |                                                                                                   | |
+|  |    +-------------------------+                           +-----------------------------------+    | |
+|  |    | Wallet Pod              |-------------------------->| PeerAuthentication                |    | |
+|  |    | (SA: wallet)            |                           | (Mode: STRICT mTLS)               |    | |
+|  |    +-------------------------+                           +-----------------------------------+    | |
+|  +---------------------------------------------------------------------------------------------------+ |
++=====================================================+==================================================+
+                                                      |                                                   
+                                                      | Cross-Network HBONE mTLS Tunnel (15443 SNI-DNAT)  
+                                                      v                                                   
++========================================================================================================+
+| GKE STANDARD CLUSTER B (prod-us / Dataplane V2 / Cilium eBPF)                                          |
+|                                                                                                        |
+|  +------------------------------------+                 +-------------------------------------------+  |
+|  | East-West Gateway Service          |                 | DATAPLANE: eBPF Socket Redirection Layer  |  |
+|  | Cluster B LoadBalancer             |                 |                                           |  |
+|  +-----------------+------------------+                 |    +---------------------------------+    |  |
+|                    |                                    |    | ztunnel DaemonSet Pods          |    |  |
+|                    | (XDS Routing)                      |    | Cluster B                       |    |  |
+|                    +---------------------------------------->+----------------+----------------+    |  |
+|                                                         +---------------------|---------------------+  |
+|                                                                               |                        |
+|                                                                               | (L7 Authorization      |
+|                                                                               v  Check)                |
+|  +--------------------------------------------------------------------------------------------------+  |
+|  | ENROLLED NAMESPACE: backend (istio.io/dataplane-mode: ambient)                                   |  |
+|  |                                                                                                  |  |
+|  |    +---------------------------------------+           +------------------------------------+    |  |
+|  |    | Optional Waypoint Proxy               |           | Backend Service Pod                |    |  |
+|  |    | Gateway API (L7 Routing / JWT Auth)   |---------->| (SA: backend)                      |    |  |
+|  |    +---------------------------------------+           +------------------------------------+    |  |
+|  |                                                      (Verified L4 Socket Delivery)               |  |
+|  +--------------------------------------------------------------------------------------------------+  |
++========================================================================================================+
 ```
 
 ---
